@@ -15,21 +15,29 @@ public class KeyPairService {
         this.sessionService = sessionService;
     }
 
-    public void generateKeyPair() throws Exception {
+    public KeyPair generateKeyPair() throws Exception {
+
+        // Check whether user is logged into the token
         if (!sessionService.isLoggedIn()) {
             throw new RuntimeException("No active Session");
         }
 
+        // Get the PKCS#11 provider
         Provider provider = sessionService.getSession().getProvider();
 
-        KeyPairGenerator generator = KeyPairGenerator.getInstance("RSA", provider);
+        // Get RSA KeyPairGenerator from the PKCS#11 provider
+        KeyPairGenerator generator =
+                KeyPairGenerator.getInstance("RSA", provider);
 
+        // Generate a new 2048-bit RSA key pair
         generator.initialize(2048);
 
         KeyPair keyPair = generator.generateKeyPair();
 
-        System.out.println("RSA 2048 key Pair Generated Successfully");
+        System.out.println("--------------------------------");
+        System.out.println("New RSA 2048 Key Pair Generated");
+        System.out.println("--------------------------------");
 
-
+        return keyPair;
     }
 }
