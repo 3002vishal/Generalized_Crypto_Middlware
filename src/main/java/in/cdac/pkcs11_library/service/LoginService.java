@@ -9,6 +9,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.security.KeyStore;
 import java.security.Provider;
 import java.security.Security;
 
@@ -25,29 +26,76 @@ public class LoginService {
 
         try {
 
-            // Create PKCS#11 configuration file
+            // =====================================================
+            // 1. Create PKCS#11 configuration file
+            // =====================================================
+
             Path configFile = createConfigFile(
                     request.getDllPath(),
                     request.getSlotId()
             );
 
-            // Configure SunPKCS11 Provider
+
+            // =====================================================
+            // 2. Configure SunPKCS11 Provider
+            // =====================================================
+
             Provider provider = Security.getProvider("SunPKCS11");
+
+            if (provider == null) {
+                throw new RuntimeException(
+                        "SunPKCS11 provider not available"
+                );
+            }
 
             provider = provider.configure(configFile.toString());
 
             Security.addProvider(provider);
 
-            // Login to token
+
+            // =====================================================
+            // 3. Login using your PKCS11Manager
+            // =====================================================
+
             PKCS11Manager manager = new PKCS11Manager(provider);
 
             manager.login(request.getPin().toCharArray());
 
-            // Store session
+
+            // =====================================================
+            // 4. Create PKCS#11 KeyStore
+            // =====================================================
+
+            KeyStore keyStore = KeyStore.getInstance(
+                    "PKCS11",
+                    provider
+            );
+
+
+            // =====================================================
+            // 5. Load the token KeyStore
+            //
+            // This also authenticates the KeyStore with the PIN.
+            // =====================================================
+
+            keyStore.load(
+                    null,
+                    request.getPin().toCharArray()
+            );
+
+
+            System.out.println("PKCS#11 KeyStore loaded successfully");
+
+
+            // =====================================================
+            // 6. Store everything in SessionInfo
+            // =====================================================
+
             SessionInfo sessionInfo = new SessionInfo();
 
             sessionInfo.setProvider(provider);
             sessionInfo.setManager(manager);
+            sessionInfo.setKeyStore(keyStore);
 
             sessionService.setSession(sessionInfo);
 
@@ -55,17 +103,27 @@ public class LoginService {
 
         }
         catch (Exception e) {
-            throw new RuntimeException("Login failed.", e);
+
+            throw new RuntimeException(
+                    "Login failed.",
+                    e
+            );
         }
     }
 
-    private Path createConfigFile(String dllPath, long slotId) throws Exception {
+
+    private Path createConfigFile(
+            String dllPath,
+            long slotId
+    ) throws Exception {
 
         InputStream inputStream =
                 getClass().getResourceAsStream("/pkcs11.cfg");
 
         if (inputStream == null) {
-            throw new RuntimeException("pkcs11.cfg not found.");
+            throw new RuntimeException(
+                    "pkcs11.cfg not found."
+            );
         }
 
         String config = new String(
@@ -75,7 +133,10 @@ public class LoginService {
 
         inputStream.close();
 
-        config = config.replace("${LIBRARY}", dllPath);
+        config = config.replace(
+                "${LIBRARY}",
+                dllPath
+        );
 
         config = config.replace(
                 "${SLOT}",
@@ -83,9 +144,15 @@ public class LoginService {
         );
 
         Path configFile =
-                Files.createTempFile("pkcs11-", ".cfg");
+                Files.createTempFile(
+                        "pkcs11-",
+                        ".cfg"
+                );
 
-        Files.writeString(configFile, config);
+        Files.writeString(
+                configFile,
+                config
+        );
 
         return configFile;
     }

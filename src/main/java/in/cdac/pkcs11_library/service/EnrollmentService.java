@@ -1,22 +1,44 @@
 package in.cdac.pkcs11_library.service;
 
+import in.cdac.pkcs11_library.model.SessionInfo;
+import org.bouncycastle.asn1.x500.X500Name;
+import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
+import org.bouncycastle.operator.ContentSigner;
+import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder;
+import org.bouncycastle.pkcs.PKCS10CertificationRequest;
+import org.bouncycastle.pkcs.PKCS10CertificationRequestBuilder;
+import org.bouncycastle.pkcs.jcajce.JcaPKCS10CertificationRequestBuilder;
+import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
+
+import java.io.ByteArrayInputStream;
+import java.io.StringWriter;
+import java.security.Certificate;
+import java.security.KeyPair;
+import java.security.KeyStore;
+import java.security.PrivateKey;
+import java.security.PublicKey;
+import java.security.cert.CertificateFactory;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
 
 @Service
 public class EnrollmentService {
 
     private final KeyPairService keyPairService;
-    private final KeyStore keyStore;
+    private final SessionService sessionService;
     private final RestClient restClient;
 
     public EnrollmentService(
             KeyPairService keyPairService,
-            KeyStore keyStore) {
+            SessionService sessionService) {
 
         this.keyPairService = keyPairService;
-        this.keyStore = keyStore;
+        this.sessionService = sessionService;
 
         this.restClient = RestClient.builder()
-                .baseUrl("http://localhost:3000")
+                .baseUrl("http://localhost:5000")
                 .build();
     }
 
@@ -32,10 +54,39 @@ public class EnrollmentService {
             String pin) throws Exception {
 
         // =====================================================
+        // 0. GET PKCS#11 KEYSTORE FROM CURRENT SESSION
+        // =====================================================
+
+        SessionInfo session =
+                sessionService.getSession();
+
+        if (session == null) {
+            throw new IllegalStateException(
+                    "No active PKCS#11 session. Please login first."
+            );
+        }
+
+        KeyStore keyStore =
+                session.getKeyStore();
+
+        if (keyStore == null) {
+            throw new IllegalStateException(
+                    "PKCS#11 KeyStore is not available."
+            );
+        }
+
+        System.out.println(
+                "PKCS#11 KeyStore obtained successfully."
+        );
+
+
+        // =====================================================
         // 1. GENERATE KEY PAIR ON TOKEN
         // =====================================================
 
-        System.out.println("1. Generating key pair...");
+        System.out.println(
+                "1. Generating key pair..."
+        );
 
         KeyPair keyPair =
                 keyPairService.generateKeyPair(alias);
@@ -46,12 +97,18 @@ public class EnrollmentService {
         PublicKey publicKey =
                 keyPair.getPublic();
 
+        System.out.println(
+                "Key pair generated on token."
+        );
+
 
         // =====================================================
         // 2. BUILD CSR
         // =====================================================
 
-        System.out.println("2. Generating CSR...");
+        System.out.println(
+                "2. Generating CSR..."
+        );
 
         String dn = String.format(
                 "CN=%s,O=%s,OU=%s,L=%s,ST=%s,C=%s",
@@ -77,9 +134,14 @@ public class EnrollmentService {
         // 3. SIGN CSR USING TOKEN PRIVATE KEY
         // =====================================================
 
+        System.out.println(
+                "3. Signing CSR using token private key..."
+        );
+
         ContentSigner signer =
-                new JcaContentSignerBuilder("SHA256withRSA")
-                        .build(privateKey);
+                new JcaContentSignerBuilder(
+                        "SHA256withRSA"
+                ).build(privateKey);
 
         PKCS10CertificationRequest csr =
                 csrBuilder.build(signer);
@@ -101,38 +163,49 @@ public class EnrollmentService {
         String csrPem =
                 writer.toString();
 
-
-        System.out.println("CSR generated.");
+        System.out.println(
+                "CSR generated successfully."
+        );
 
 
         // =====================================================
         // 5. SEND CSR TO NODE.JS CA
         // =====================================================
 
-        System.out.println("3. Sending CSR to CA...");
+        System.out.println(
+                "4. Sending CSR to CA..."
+        );
 
         Map<String, Object> request =
                 new HashMap<>();
 
-        request.put("username", alias);
-        request.put("csr", csrPem);
-        request.put("serviceRoles", serviceRoles);
+        request.put(
+                "username",
+                alias
+        );
 
+        request.put(
+                "csr",
+                csrPem
+        );
+
+        request.put(
+                "serviceRoles",
+                serviceRoles
+        );
 
         Map response =
                 restClient.post()
-                        .uri("/enroll")
+                        .uri("/api/enroll")
                         .body(request)
                         .retrieve()
                         .body(Map.class);
-
 
         if (response == null) {
             throw new IllegalStateException(
                     "CA returned empty response"
             );
         }
-
 
         Boolean success =
                 (Boolean) response.get("success");
@@ -143,10 +216,8 @@ public class EnrollmentService {
             );
         }
 
-
         String certificatePem =
                 (String) response.get("certificate");
-
 
         if (certificatePem == null ||
                 certificatePem.isBlank()) {
@@ -156,10 +227,14 @@ public class EnrollmentService {
             );
         }
 
-
         System.out.println(
                 "Certificate received from CA."
         );
+        System.out.println("========== CERTIFICATE RESPONSE ==========");
+        System.out.println(certificatePem);
+        System.out.println("==========================================");
+
+
 
 
         // =====================================================
@@ -179,13 +254,16 @@ public class EnrollmentService {
                                 "-----END CERTIFICATE-----",
                                 ""
                         )
-                        .replaceAll("\\s+", "");
+                        .replaceAll(
+                                "\\s+",
+                                ""
+                        );
 
         byte[] certificateBytes =
                 Base64.getDecoder()
                         .decode(cleaned);
 
-        Certificate certificate =
+        java.security.cert.Certificate certificate =
                 certificateFactory.generateCertificate(
                         new ByteArrayInputStream(
                                 certificateBytes
@@ -194,7 +272,7 @@ public class EnrollmentService {
 
 
         // =====================================================
-        // 7. VERIFY THAT CERTIFICATE MATCHES PUBLIC KEY
+        // 7. VERIFY CERTIFICATE MATCHES PUBLIC KEY
         // =====================================================
 
         PublicKey certificatePublicKey =
@@ -208,7 +286,6 @@ public class EnrollmentService {
             );
         }
 
-
         System.out.println(
                 "Certificate public key matches key pair."
         );
@@ -219,20 +296,28 @@ public class EnrollmentService {
         // =====================================================
 
         System.out.println(
-                "Mapping certificate to private key..."
+                "8. Mapping certificate to private key..."
         );
 
-        Certificate[] chain =
-                new Certificate[]{
+        java.security.cert.Certificate[] chain =
+                new java.security.cert.Certificate[]{
                         certificate
                 };
 
+
+        // =====================================================
+        // THIS IS THE CODE YOU WANT
+        // =====================================================
 
         keyStore.setKeyEntry(
                 alias,
                 privateKey,
                 pin.toCharArray(),
                 chain
+        );
+
+        System.out.println(
+                "Certificate mapped to private key."
         );
 
 
@@ -248,7 +333,6 @@ public class EnrollmentService {
                         )
                 );
 
-
         if (!(entry instanceof KeyStore.PrivateKeyEntry)) {
 
             throw new IllegalStateException(
@@ -257,10 +341,13 @@ public class EnrollmentService {
             );
         }
 
-
         KeyStore.PrivateKeyEntry privateKeyEntry =
                 (KeyStore.PrivateKeyEntry) entry;
 
+
+        // =====================================================
+        // 10. SUCCESS
+        // =====================================================
 
         System.out.println(
                 "===================================="
@@ -282,7 +369,6 @@ public class EnrollmentService {
         System.out.println(
                 "===================================="
         );
-
 
         return certificatePem;
     }

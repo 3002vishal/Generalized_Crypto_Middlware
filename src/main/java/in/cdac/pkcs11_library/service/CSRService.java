@@ -1,5 +1,7 @@
 package in.cdac.pkcs11_library.service;
 
+import in.cdac.pkcs11_library.dto.CSRResponse;
+
 import org.bouncycastle.asn1.x500.X500Name;
 import org.bouncycastle.openssl.jcajce.JcaPEMWriter;
 import org.bouncycastle.operator.ContentSigner;
@@ -21,7 +23,8 @@ public class CSRService {
         this.keyPairService = keyPairService;
     }
 
-    public String generateCSR(
+    public CSRResponse generateCSR(
+            String alias,
             String commonName,
             String organization,
             String organizationalUnit,
@@ -30,10 +33,11 @@ public class CSRService {
             String country) throws Exception {
 
         // =====================================================
-        // 1. Generate NEW key pair on the crypto token
+        // 1. Generate NEW key pair on crypto token
         // =====================================================
 
-        KeyPair keyPair = keyPairService.generateKeyPair();
+        KeyPair keyPair =
+                keyPairService.generateKeyPair(alias);
 
 
         // =====================================================
@@ -65,9 +69,7 @@ public class CSRService {
 
 
         // =====================================================
-        // 4. Create signer using PRIVATE key
-        //
-        // Private key remains inside the crypto token.
+        // 4. Create signer using TOKEN PRIVATE key
         // =====================================================
 
         ContentSigner signer =
@@ -87,7 +89,8 @@ public class CSRService {
         // 6. Convert CSR to PEM
         // =====================================================
 
-        StringWriter stringWriter = new StringWriter();
+        StringWriter stringWriter =
+                new StringWriter();
 
         try (JcaPEMWriter pemWriter =
                      new JcaPEMWriter(stringWriter)) {
@@ -95,12 +98,22 @@ public class CSRService {
             pemWriter.writeObject(csr);
         }
 
-        String pemCSR = stringWriter.toString();
+        String pemCSR =
+                stringWriter.toString();
+
+
+        // =====================================================
+        // 7. Return alias + CSR
+        // =====================================================
 
         System.out.println("--------------------------------");
         System.out.println("CSR Generated Successfully");
+        System.out.println("Alias : " + alias);
         System.out.println("--------------------------------");
 
-        return pemCSR;
+        return new CSRResponse(
+                alias,
+                pemCSR
+        );
     }
 }

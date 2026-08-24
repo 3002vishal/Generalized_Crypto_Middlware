@@ -15,28 +15,40 @@ public class KeyPairService {
         this.sessionService = sessionService;
     }
 
-    public KeyPair generateKeyPair() throws Exception {
+    public KeyPair generateKeyPair(String alias) throws Exception {
 
-        // Check whether user is logged into the token
-        if (!sessionService.isLoggedIn()) {
-            throw new RuntimeException("No active Session");
+        // Get the provider created during login
+        Provider provider =
+                sessionService.getSession().getProvider();
+
+        if (provider == null) {
+            throw new IllegalStateException(
+                    "PKCS#11 provider not available. Login first."
+            );
         }
 
-        // Get the PKCS#11 provider
-        Provider provider = sessionService.getSession().getProvider();
+        System.out.println("--------------------------------");
+        System.out.println("USING PKCS#11 PROVIDER");
+        System.out.println("--------------------------------");
+        System.out.println(
+                "Provider : " + provider.getName()
+        );
 
-        // Get RSA KeyPairGenerator from the PKCS#11 provider
-        KeyPairGenerator generator =
-                KeyPairGenerator.getInstance("RSA", provider);
+        KeyPairGenerator keyPairGenerator =
+                KeyPairGenerator.getInstance(
+                        "RSA",
+                        provider
+                );
 
-        // Generate a new 2048-bit RSA key pair
-        generator.initialize(2048);
+        keyPairGenerator.initialize(2048);
 
-        KeyPair keyPair = generator.generateKeyPair();
+        KeyPair keyPair =
+                keyPairGenerator.generateKeyPair();
 
         System.out.println("--------------------------------");
-        System.out.println("New RSA 2048 Key Pair Generated");
+        System.out.println("KEY PAIR GENERATED");
         System.out.println("--------------------------------");
+        System.out.println("Alias : " + alias);
 
         return keyPair;
     }
