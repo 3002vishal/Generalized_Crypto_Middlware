@@ -9,11 +9,23 @@ import java.util.Map;
 
 @RestController
 @RequestMapping("/api/enrollment")
+@CrossOrigin(
+        origins = {
+                "http://localhost:3000",
+                "http://localhost:5000"
+        },
+        allowedHeaders = "*",
+        methods = {
+                RequestMethod.POST,
+                RequestMethod.OPTIONS
+        }
+)
 public class EnrollmentController {
 
     private final EnrollmentService enrollmentService;
 
-    public EnrollmentController(EnrollmentService enrollmentService) {
+    public EnrollmentController(
+            EnrollmentService enrollmentService) {
         this.enrollmentService = enrollmentService;
     }
 
@@ -48,11 +60,15 @@ public class EnrollmentController {
 
             e.printStackTrace();
 
-            return ResponseEntity.internalServerError()
+            return ResponseEntity
+                    .internalServerError()
                     .body(
                             Map.of(
                                     "success", false,
-                                    "error", e.getMessage()
+                                    "error",
+                                    e.getMessage() != null
+                                            ? e.getMessage()
+                                            : "Certificate enrollment failed"
                             )
                     );
         }

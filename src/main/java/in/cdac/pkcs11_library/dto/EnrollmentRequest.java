@@ -2,6 +2,8 @@ package in.cdac.pkcs11_library.dto;
 
 import lombok.Data;
 
+import java.util.Map;
+
 @Data
 public class EnrollmentRequest {
 
@@ -12,7 +14,7 @@ public class EnrollmentRequest {
     private String locality;
     private String state;
     private String country;
-    private String serviceRoles;
+    private Map<String , String> serviceRoles;
     private String pin;
 
     // getters and setters
