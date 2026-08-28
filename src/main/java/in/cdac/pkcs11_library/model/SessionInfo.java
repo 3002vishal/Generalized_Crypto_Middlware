@@ -15,5 +15,5 @@ public class SessionInfo {
 
     private PKCS11Manager manager;
 
-
+    private String configFilePath;
 }

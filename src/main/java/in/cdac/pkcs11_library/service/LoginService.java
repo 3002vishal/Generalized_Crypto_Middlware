@@ -9,7 +9,6 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.security.KeyStore;
 import java.security.Provider;
 import java.security.Security;
 
@@ -24,85 +23,91 @@ public class LoginService {
 
     public void login(LoginRequest request) {
 
+        Path configFile = null;
+
         try {
 
             // =====================================================
-            // 1. Create PKCS#11 configuration file
+            // 1. Create PKCS#11 configuration
             // =====================================================
 
-            Path configFile = createConfigFile(
+            configFile = createConfigFile(
                     request.getDllPath(),
                     request.getSlotId()
             );
 
-
             // =====================================================
-            // 2. Configure SunPKCS11 Provider
+            // 2. Get base SunPKCS11 provider
             // =====================================================
 
-            Provider provider = Security.getProvider("SunPKCS11");
+            Provider baseProvider =
+                    Security.getProvider("SunPKCS11");
 
-            if (provider == null) {
+            if (baseProvider == null) {
+
                 throw new RuntimeException(
                         "SunPKCS11 provider not available"
                 );
             }
 
-            provider = provider.configure(configFile.toString());
+            // =====================================================
+            // 3. Configure provider
+            // =====================================================
+
+            Provider provider =
+                    baseProvider.configure(
+                            configFile.toString()
+                    );
 
             Security.addProvider(provider);
 
-
             // =====================================================
-            // 3. Login using your PKCS11Manager
-            // =====================================================
-
-            PKCS11Manager manager = new PKCS11Manager(provider);
-
-            manager.login(request.getPin().toCharArray());
-
-
-            // =====================================================
-            // 4. Create PKCS#11 KeyStore
+            // 4. Create manager
             // =====================================================
 
-            KeyStore keyStore = KeyStore.getInstance(
-                    "PKCS11",
-                    provider
-            );
-
+            PKCS11Manager manager =
+                    new PKCS11Manager(provider);
 
             // =====================================================
-            // 5. Load the token KeyStore
-            //
-            // This also authenticates the KeyStore with the PIN.
+            // 5. Login
             // =====================================================
 
-            keyStore.load(
-                    null,
+            manager.login(
                     request.getPin().toCharArray()
             );
 
-
-            System.out.println("PKCS#11 KeyStore loaded successfully");
-
-
             // =====================================================
-            // 6. Store everything in SessionInfo
+            // 6. Create session
             // =====================================================
 
-            SessionInfo sessionInfo = new SessionInfo();
+            SessionInfo sessionInfo =
+                    new SessionInfo();
 
             sessionInfo.setProvider(provider);
             sessionInfo.setManager(manager);
-            sessionInfo.setKeyStore(keyStore);
+            sessionInfo.setKeyStore(
+                    manager.getKeyStore()
+            );
+            sessionInfo.setConfigFilePath(
+                    configFile.toString()
+            );
 
             sessionService.setSession(sessionInfo);
 
-            System.out.println("Login Successful");
+            System.out.println(
+                    "PKCS#11 Login Successful"
+            );
 
-        }
-        catch (Exception e) {
+        } catch (Exception e) {
+
+            // If login failed, clean up the provider/config
+            if (configFile != null) {
+
+                try {
+                    Files.deleteIfExists(configFile);
+                } catch (Exception ignored) {
+                }
+            }
 
             throw new RuntimeException(
                     "Login failed.",
@@ -111,27 +116,31 @@ public class LoginService {
         }
     }
 
-
     private Path createConfigFile(
             String dllPath,
             long slotId
     ) throws Exception {
 
         InputStream inputStream =
-                getClass().getResourceAsStream("/pkcs11.cfg");
+                getClass()
+                        .getResourceAsStream("/pkcs11.cfg");
 
         if (inputStream == null) {
+
             throw new RuntimeException(
                     "pkcs11.cfg not found."
             );
         }
 
-        String config = new String(
-                inputStream.readAllBytes(),
-                StandardCharsets.UTF_8
-        );
+        String config;
 
-        inputStream.close();
+        try (inputStream) {
+
+            config = new String(
+                    inputStream.readAllBytes(),
+                    StandardCharsets.UTF_8
+            );
+        }
 
         config = config.replace(
                 "${LIBRARY}",
