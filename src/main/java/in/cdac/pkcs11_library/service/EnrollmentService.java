@@ -16,10 +16,7 @@ import org.springframework.web.client.RestClient;
 import java.io.ByteArrayInputStream;
 import java.io.StringWriter;
 
-import java.security.KeyPair;
-import java.security.KeyStore;
-import java.security.PrivateKey;
-import java.security.PublicKey;
+import java.security.*;
 
 import java.security.cert.CertificateFactory;
 
@@ -164,6 +161,13 @@ public class EnrollmentService {
 
         KeyStore keyStore =
                 session.getKeyStore();
+
+        Provider pkcs11Provider = session.getProvider();
+
+        if(pkcs11Provider == null)
+        {
+            throw new IllegalStateException("PKCS#11 Provider is not available");
+        }
 
 
         if (keyStore == null) {
@@ -313,7 +317,9 @@ public class EnrollmentService {
         ContentSigner signer =
                 new JcaContentSignerBuilder(
                         "SHA256withRSA"
-                ).build(privateKey);
+                )
+                        .setProvider(pkcs11Provider)
+                        .build(privateKey);
 
 
         PKCS10CertificationRequest csr =
